@@ -10,7 +10,7 @@ module.exports=function generate(id,username){
     
     const options={expiresIn:"12h"};
     
-    return jwt.sign(payload,secretkey,options)
+    return jwt.sign(payload,secretkey,options);
 }
 
 

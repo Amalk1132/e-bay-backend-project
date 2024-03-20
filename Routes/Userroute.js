@@ -14,9 +14,9 @@ router.post("/addtocart/:id",userControler.addtocart);
 router.get("/viewcart/:id",userControler.viewCart);
 router.get("/cartcount/:id",userControler.getCartCount);
 router.put("/updatecartquantity/:productId/:userId",userControler.updateQuantity);
-router.delete("/deletecartitem/:id/:userid",userControler.deleteCartitem);
+router.delete("/deletecartitem/:productId/:userId",userControler.removeCart);
 router.post("/address",userControler.updateAddress);
-router.get("getaddress/:id",userControler.getaddress);
+router.get("/getaddress/:id",userControler.getaddress);
 
 module.exports=router;
 
