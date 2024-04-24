@@ -6,6 +6,7 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const verifysid = process.env.TWILIO_VERIFY_SID;
 const client = require("twilio")(accountSid, authToken);
+const jwt = require("jsonwebtoken");
 
 /////////////-----USER REGISTRATION---///////////
 const register = async (req, res) => {
@@ -19,8 +20,7 @@ const register = async (req, res) => {
       .services(verifysid)
       .verifications.create({ to: `+91${phone}`, channel: "sms" })
       .then((verification) => {
-        
-        if (verification.status === "pending"){
+        if (verification.status === "pending") {
           res.status(200).send("success");
         }
       })
@@ -34,25 +34,21 @@ const register = async (req, res) => {
 };
 
 ///////////////VERIFY OTP//////////////////
- 
-const verifyotp = async (req, res) => {
 
+const verifyotp = async (req, res) => {
   const user = req.body.formValues;
   const otp = req.body.Otp;
   const phone = req.body.formValues.phone;
-  console.log(req.body)
- 
+  console.log(req.body);
 
   client.verify.v2
     .services(verifysid)
     .verificationChecks.create({ to: `+91${phone}`, code: Number(otp) })
     .then(async (verification_check) => {
-      console.log(verification_check.status)
+      console.log(verification_check.status);
 
       if (verification_check.status === "approved") {
-
         const newUser = await userModel.create(user);
-       
 
         const token = Createtoken(newUser.email);
         res.cookie("userjwt", token);
@@ -67,25 +63,19 @@ const verifyotp = async (req, res) => {
 
 ////////////////USER LOGIN/////////////////
 const login = async (req, res) => {
+  const { email, password } = req.body;
 
-  const{email,password}= req.body;
-
-  
   const userExist = await userModel.findOne({ email: email });
-  
+
   if (userExist) {
-    console.log("hello get ")
-    
-    const auth = await bcrypt.compare( password,userExist.password);
+    console.log("hello get ");
+
+    const auth = await bcrypt.compare(password, userExist.password);
     if (auth) {
-
-
-
-      
       const token = Createtoken(userExist._id, userExist.username);
-      
+
       res.cookie("userjwt", token);
-      console.log("hello get user")
+      console.log("hello get user");
       res.status(200).json({
         user: userExist,
         status: true,
@@ -108,9 +98,15 @@ const logout = async (req, res) => {
 
 //////////////---GET USER---///////////////
 const getuser = async (req, res) => {
-  const data = req.params.id;
-  const user = await userModel.findById(data);
-  res.send(user);
+  const decodeToken = jwt.decode(req.cookies.userjwt);
+  if (decodeToken) {
+    console.log(decodeToken);
+    const user = await userModel.findById(decodeToken.userid);
+    res.status(200).send(user);
+  } else {
+    res.status(404).send("error");
+    console.log("error");
+  }
 };
 
 /////////----USER ADDRESS---///////////////
@@ -160,11 +156,10 @@ const productById = async (req, res) => {
 
 ////////////----ADD TO CART ---////////////
 const addtocart = async (req, res) => {
-  const userId = req.params.id;
-  const productId = req.body._id;
+  const { userid, prodid } = req.params;
 
-  const user = await userModel.findById(userId);
-  const product = await productModel.findById(productId);
+  const user = await userModel.findById(userid);
+  const product = await productModel.findById(prodid);
   if (!user) {
     res.status(400).send(" user not found");
     return;
@@ -175,11 +170,11 @@ const addtocart = async (req, res) => {
     return;
   }
 
-  const isExist = await user.cart.find((item) => item._id == productId);
+  const isExist = await user.cart.find((item) => item._id == prodid);
   console.log(isExist);
 
   if (!isExist) {
-    const uUser = await userModel.findByIdAndUpdate(userId, {
+    const uUser = await userModel.findByIdAndUpdate(userid, {
       $push: { cart: product },
     });
     await uUser.save();
@@ -195,14 +190,15 @@ const viewCart = async (req, res) => {
   const userId = req.params.id;
   const user = await userModel.findById(userId);
   if (user) {
-    res.status(200).send({ cart: user.cart });
+    res.status(200).send(user.cart);
   }
 };
 
 //////////////---GET CART COUNT---//////////////////
 
 const getCartCount = async (req, res) => {
-  const userId = req.params.id;
+  const userId = req.params.userId;
+
   const user = await userModel.findById(userId);
   if (user) {
     const cartCount = user.cart.length;
@@ -220,76 +216,144 @@ const updateQuantity = async (req, res) => {
 
   const user = await userModel.findById(userId);
 
-  if(user){
-    const updatedCart = user.cart.map((item) =>{
-
-        console.log(item._id);
-        console.log(productId);
-        if (item._id == productId) {
-            console.log("hello");
-          return { ...item, qty: quantity };
-        }
-        return item;
-    
-      });
-      console.log(updatedCart);
-      const Uuser = await userModel.findByIdAndUpdate(userId, {
-        $set: { cart: updatedCart },
-      });
-      res.status(200).send(Uuser.cart);
-
+  if (user) {
+    const updatedCart = user.cart.map((item) => {
+      console.log(item._id);
+      console.log(productId);
+      if (item._id == productId) {
+        console.log("hello");
+        return { ...item, qty: quantity };
+      }
+      return item;
+    });
+    console.log(updatedCart);
+    const Uuser = await userModel.findByIdAndUpdate(userId, {
+      $set: { cart: updatedCart },
+    });
+    res.status(200).send(Uuser.cart);
   }
-
- 
-
 };
 
 ////////---DELEATE ITEM FROM CART---/////////////
 const removeCart = async (req, res) => {
   const userId = req.params.userId;
-  console.log(typeof userId);
-  
   const productId = req.params.productId;
-  console.log(typeof productId);
 
+  const userCheck = await userModel.findOne({ _id: userId });
+  const userCart = userCheck.cart;
+  console.log(userCart);
+
+  if (!userCheck) {
+    return res.status(404).json({
+      message: "user not found",
+    });
+  }
+  const updatedCart = userCart.filter((ele) => ele._id != productId);
+
+  userCheck.cart = updatedCart;
+
+  await userCheck.save();
+
+  res
+    .status(200)
+    .json({ message: "item removed from cart succcess", userCart });
+};
+
+///////////---ADD TO WISHLIST---//////////////////
+const addWishlist = async (req, res) => {
+  const userId = req.params.userId;
+  console.log(userId);
+  const productId = req.params.productId;
+  console.log(productId);
 
   const user = await userModel.findById(userId);
-  console.log(user);
-
-  if(!user){
-    return res.status(404).send("user not found");
+  const product = await productModel.findById(productId);
+  if (!user || !product) {
+    return res.status(400).json({
+      success: false,
+      message: "user or product not found",
+    });
   }
-  
 
-  try {
-    const updatedProducts = user.cart.filter((item) => item._id.toString() !== productId);
+  const checkprod = user.whishlist.find((item) => item._id == productId);
 
-    console.log(updatedProducts);
+  if (checkprod) {
+    const newwishlist = user.whishlist.filter((item) => item._id != productId);
+    console.log(newwishlist);
+    await userModel.updateOne(
+      { _id: userId },
+      { $set: { whishlist: newwishlist } }
+    );
+    return res.status(404).json({
+      success: false,
 
-    if (updatedProducts) {
-        
-      const updatedUser = await userModel.findByIdAndUpdate(userId, {
-        $set: { cart: updatedProducts },
-      });
+      message: "Product removed from wishlist",
+    });
+  } else {
+    await userModel.updateOne(
+      { _id: userId },
+      { $push: { whishlist: product } }
+    );
+    return res.status(200).json({
+      success: true,
 
-    
-      res.json({
-        message: "product successfully deleated",
-        data: updatedUser.cart,
-      });
-    }
-  } catch (err) {
-    console.log(err);
+      message: "Product successfully added to wishlist",
+    });
   }
 };
+
+//////////---VIEW PRODUCT IN WISHLIST---/////////
+const viewWishlist = async (req, res) => {
+  const userId = req.params.userId;
+  console.log(userId);
+  const user = await userModel.findById(userId);
+
+  if (!user) {
+    return res.status(400).json({
+      success: false,
+      message: "user not found",
+    });
+  }
+  res.status(200).send(user.whishlist);
+};
+
+//////////----REMOVE FROM WISHLIST----//////////
+const removeWishlist = async (req, res) => {
+  const userId = req.params.userId;
+  // console.log(userId)
+  const productId = req.params.productId;
+  // console.log(productId)
+
+  const user = await userModel.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "user not found",
+    });
+  }
+  const iswishlist = user.whishlist.find((item) => item._id == productId);
+  if (iswishlist) {
+    const updatedwishlist = user.whishlist.filter(
+      (ele) => ele._id != productId
+    );
+
+    user.whishlist = updatedwishlist;
+
+    await user.save();
+
+    res
+      .status(200)
+      .json({ success: true, message: "item removed from wishlist succcess" });
+  }
+};
+
 /////////////---PRODUCT BY CATEGORY---/////////
 const productbyCategory = async (req, res) => {
   const category = req.params.category;
   const products = await productModel.find({ category: category });
   res.status(200).send(products);
 };
-
-
 
 module.exports = {
   register,
@@ -306,5 +370,8 @@ module.exports = {
   getCartCount,
   updateQuantity,
   removeCart,
+  addWishlist,
+  viewWishlist,
+  removeWishlist,
   productbyCategory,
 };
